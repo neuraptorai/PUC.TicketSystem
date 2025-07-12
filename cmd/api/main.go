@@ -2,7 +2,6 @@
 package main
 
 import (
-	// ... outros imports
 	"context"
 	"log/slog"
 	"net/http"
@@ -15,7 +14,7 @@ import (
 	"github.com/neuraptorai/PUC.TicketSystem/internal/catalog"
 	"github.com/neuraptorai/PUC.TicketSystem/internal/config"
 	"github.com/neuraptorai/PUC.TicketSystem/internal/payments"
-	"github.com/neuraptorai/PUC.TicketSystem/internal/platform/broker" // Import
+	"github.com/neuraptorai/PUC.TicketSystem/internal/platform/broker"
 	"github.com/neuraptorai/PUC.TicketSystem/internal/platform/cache"
 	"github.com/neuraptorai/PUC.TicketSystem/internal/platform/web"
 	"github.com/neuraptorai/PUC.TicketSystem/internal/sales"
@@ -23,14 +22,13 @@ import (
 )
 
 func main() {
-	// ... logger, config, redis client, seedStock ...
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+	// ... (config, redis, seedStock) ...
 	cfg, err := config.Load()
 	if err != nil {
 		logger.Error("Failed to load configuration", "error", err)
 		os.Exit(1)
 	}
-	// ...
 	rdb, err := cache.NewRedisClient(cfg.RedisAddr, cfg.RedisPassword, cfg.RedisDB)
 	if err != nil {
 		logger.Error("Failed to connect to redis", "error", err)
@@ -39,35 +37,26 @@ func main() {
 	defer rdb.Close()
 	logger.Info("Successfully connected to Redis")
 	seedStock(rdb, logger)
-	// ...
 
 	// --- Instanciação dos Componentes ---
-
-	// Broker
 	eventBroker := broker.NewLogBroker(logger)
-
-	// Componente de Autenticação
 	userValidator := &auth.MockUserValidator{}
 	authHandler := auth.NewHandler(logger, userValidator, cfg.JWTSecretKey)
-
-	// Componente de Catálogo
 	catalogHandler := catalog.NewHandler(logger, rdb)
-
-	// Componente de Vendas
 	salesHandler := sales.NewHandler(logger, rdb, eventBroker)
-
-	// Componente de Pagamentos
-	paymentGateway := payments.NewFakePaymentGateway(logger) // Usamos o adapter fake
-	paymentHandler := payments.NewEventHandler(logger, paymentGateway)
+	paymentGateway := payments.NewFakePaymentGateway(logger)
+	// O paymentHandler agora também precisa do broker para publicar o evento interno.
+	paymentHandler := payments.NewEventHandler(logger, paymentGateway, eventBroker)
 
 	// --- Inscrição de Eventos ---
-	// O componente de pagamentos se inscreve para ouvir eventos do tópico 'reservations.created'.
 	eventBroker.Subscribe("reservations.created", paymentHandler.HandleReservationCreated)
+	// Inscrevemos o novo handler para ouvir os eventos de pagamento processado.
+	eventBroker.Subscribe("payments.processed", paymentHandler.HandlePaymentProcessed)
 
 	// --- Configuração do Roteador ---
-	router := web.NewRouter(cfg.JWTSecretKey, authHandler, catalogHandler, salesHandler)
+	router := web.NewRouter(cfg.JWTSecretKey, authHandler, catalogHandler, salesHandler, paymentHandler)
 
-	// ... (Resto do main sem alterações - servidor e graceful shutdown) ...
+	// ... (Resto do main sem alterações) ...
 	server := &http.Server{Addr: ":8080", Handler: router}
 	serverErrors := make(chan error, 1)
 	go func() {

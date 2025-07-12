@@ -60,3 +60,30 @@ Authorization: Bearer {{access_token}}
   "ticket_type_id": "ticket-type-vip",
   "quantity": 999
 }
+
+###
+# @name Payment Webhook Simulation (APPROVED)
+# Simula a notificação do gateway de que um pagamento foi aprovado.
+POST http://localhost:8080/api/v1/payments/webhook
+Content-Type: application/json
+
+{
+  "payment_id": "pay_some_reservation_id",
+  "reservation_id": "some_reservation_id_from_a_previous_step",
+  "status": "APPROVED",
+  "amount": 100.00
+}
+
+
+###
+# @name Payment Webhook Simulation (REJECTED)
+# Simula a notificação do gateway de que um pagamento foi rejeitado.
+POST http://localhost:8080/api/v1/payments/webhook
+Content-Type: application/json
+
+{
+  "payment_id": "pay_another_reservation_id",
+  "reservation_id": "another_reservation_id",
+  "status": "REJECTED",
+  "amount": 50.00
+}

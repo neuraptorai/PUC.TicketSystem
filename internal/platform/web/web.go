@@ -10,6 +10,7 @@ import (
 	"github.com/neuraptorai/PUC.TicketSystem/internal/auth"
 )
 
+// ... (interfaces AuthHandler, CatalogHandler, SalesHandler sem alterações) ...
 type AuthHandler interface {
 	Login(w http.ResponseWriter, r *http.Request)
 }
@@ -20,26 +21,29 @@ type SalesHandler interface {
 	CreateReservation(w http.ResponseWriter, r *http.Request)
 }
 
+// Adicionamos uma interface para o handler de pagamentos, para o webhook.
+type PaymentHandler interface {
+	HandleWebhook(w http.ResponseWriter, r *http.Request)
+}
+
 func NewRouter(
 	secretKey string,
 	authHandler AuthHandler,
 	catalogHandler CatalogHandler,
 	salesHandler SalesHandler,
+	paymentHandler PaymentHandler, // Nova dependência
 ) http.Handler {
 	r := chi.NewRouter()
 
-	r.Use(middleware.RequestID)
-	r.Use(middleware.RealIP)
-	r.Use(middleware.Logger)
-	r.Use(middleware.Recoverer)
-
+	r.Use(middleware.RequestID, middleware.RealIP, middleware.Logger, middleware.Recoverer)
 	r.Get("/health", healthCheckHandler)
 
 	r.Route("/api/v1", func(r chi.Router) {
 		r.Post("/auth/login", authHandler.Login)
-
-		// Rotas do Catálogo (Consulta - Públicas)
 		r.Get("/events/{eventID}/availability", catalogHandler.GetAvailability)
+
+		// Webhook de Pagamentos (público, mas a segurança pode ser reforçada)
+		r.Post("/payments/webhook", paymentHandler.HandleWebhook)
 
 		r.Group(func(r chi.Router) {
 			r.Use(auth.Middleware(secretKey))
@@ -50,7 +54,7 @@ func NewRouter(
 	return r
 }
 
-// ... healthCheckHandler sem alterações
+// ... (healthCheckHandler sem alterações) ...
 func healthCheckHandler(w http.ResponseWriter, r *http.Request) {
 	status := struct {
 		Status string `json:"status"`
