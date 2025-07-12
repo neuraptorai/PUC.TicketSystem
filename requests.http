@@ -1,0 +1,9 @@
+// File: requests.http
+
+###
+# @name HealthCheck
+# Envia uma requisição para o endpoint de health check.
+GET http://localhost:8080/health
+Content-Type: application/json
+
+###
