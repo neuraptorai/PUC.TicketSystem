@@ -1,0 +1,8 @@
+# File: .dockerignore
+
+.git
+.gitignore
+.env
+*.md
+docker-compose.yml
+Dockerfile

@@ -1,0 +1,62 @@
+# File: docker-compose.yml
+
+version: '3.8'
+
+services:
+  # Serviço da nossa API Go
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: puc-ticket-api
+    ports:
+      - "8080:8080"
+    # Carrega as variáveis de ambiente do arquivo .env
+    env_file:
+      - .env
+    # Garante que o redis e o db iniciem antes da api
+    depends_on:
+      - redis
+      - db
+    networks:
+      - ticket-network
+
+  # Serviço do Redis
+  redis:
+    image: "redis:7-alpine"
+    container_name: puc-ticket-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      # Volume nomeado para persistir os dados do Redis
+      - redis-data:/data
+    networks:
+      - ticket-network
+
+  # Serviço do Banco de Dados (PostgreSQL)
+  # ADR 002 menciona o PostgreSQL como fonte da verdade.
+  db:
+    image: "postgres:16-alpine"
+    container_name: puc-ticket-db
+    ports:
+      - "5432:5432"
+    # As variáveis de ambiente são usadas pelo Postgre para inicializar o DB.
+    environment:
+      - POSTGRES_USER=${DB_USER}
+      - POSTGRES_PASSWORD=${DB_PASSWORD}
+      - POSTGRES_DB=${DB_NAME}
+    volumes:
+      # Volume nomeado para persistir os dados do PostgreSQL
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - ticket-network
+
+# Define a rede customizada para os serviços
+networks:
+  ticket-network:
+    driver: bridge
+
+# Define os volumes nomeados para persistência de dados
+volumes:
+  redis-data:
+  postgres-data:
