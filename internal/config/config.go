@@ -7,30 +7,33 @@ import (
 	"strconv"
 
 	"github.com/joho/godotenv"
+	"golang.org/x/oauth2"
+	"golang.org/x/oauth2/google"
 )
 
 type Config struct {
-	JWTSecretKey  string
-	RedisAddr     string
-	RedisPassword string
-	RedisDB       int
+	// ... (outras configs)
+	JWTSecretKey      string
+	RedisAddr         string
+	RedisPassword     string
+	RedisDB           int
+	DatabaseDSN       string
+	GoogleOAuthConfig *oauth2.Config
 }
 
 func Load() (*Config, error) {
 	_ = godotenv.Load()
 
+	// ... (carregamento de outras vars)
 	jwtKey := os.Getenv("JWT_SECRET_KEY")
 	if jwtKey == "" {
 		return nil, fmt.Errorf("JWT_SECRET_KEY environment variable not set")
 	}
-
 	redisAddr := os.Getenv("REDIS_ADDR")
 	if redisAddr == "" {
 		return nil, fmt.Errorf("REDIS_ADDR environment variable not set")
 	}
-
-	redisPassword := os.Getenv("REDIS_PASSWORD") // Pode ser vazio
-
+	redisPassword := os.Getenv("REDIS_PASSWORD")
 	redisDBStr := os.Getenv("REDIS_DB")
 	if redisDBStr == "" {
 		redisDBStr = "0"
@@ -40,11 +43,33 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("invalid REDIS_DB value: %w", err)
 	}
 
+	// Configuração do OAuth do Google
+	googleOAuthConfig := &oauth2.Config{
+		ClientID:     os.Getenv("GOOGLE_CLIENT_ID"),
+		ClientSecret: os.Getenv("GOOGLE_CLIENT_SECRET"),
+		RedirectURL:  os.Getenv("GOOGLE_REDIRECT_URL"),
+		Scopes: []string{
+			"https://www.googleapis.com/auth/userinfo.email",
+			"https://www.googleapis.com/auth/userinfo.profile",
+		},
+		Endpoint: google.Endpoint,
+	}
+	// Monta a DSN do PostgreSQL
+	dsn := fmt.Sprintf("postgres://%s:%s@%s:%s/%s?sslmode=disable",
+		os.Getenv("DB_USER"),
+		os.Getenv("DB_PASSWORD"),
+		os.Getenv("DB_HOST"),
+		os.Getenv("DB_PORT"),
+		os.Getenv("DB_NAME"),
+	)
+
 	cfg := &Config{
-		JWTSecretKey:  jwtKey,
-		RedisAddr:     redisAddr,
-		RedisPassword: redisPassword,
-		RedisDB:       redisDB,
+		JWTSecretKey:      jwtKey,
+		RedisAddr:         redisAddr,
+		RedisPassword:     redisPassword,
+		RedisDB:           redisDB,
+		DatabaseDSN:       dsn,
+		GoogleOAuthConfig: googleOAuthConfig,
 	}
 
 	return cfg, nil

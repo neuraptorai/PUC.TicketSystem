@@ -13,15 +13,18 @@ import (
 	"github.com/neuraptorai/PUC.TicketSystem/internal/auth"
 	"github.com/neuraptorai/PUC.TicketSystem/internal/catalog"
 	"github.com/neuraptorai/PUC.TicketSystem/internal/config"
+	"github.com/neuraptorai/PUC.TicketSystem/internal/database"
 	"github.com/neuraptorai/PUC.TicketSystem/internal/payments"
 	"github.com/neuraptorai/PUC.TicketSystem/internal/platform/broker"
 	"github.com/neuraptorai/PUC.TicketSystem/internal/platform/cache"
 	"github.com/neuraptorai/PUC.TicketSystem/internal/platform/web"
 	"github.com/neuraptorai/PUC.TicketSystem/internal/sales"
+	"github.com/neuraptorai/PUC.TicketSystem/internal/user"
 	"github.com/redis/go-redis/v9"
 )
 
 func main() {
+	ctx := context.Background()
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	// ... (config, redis, seedStock) ...
 	cfg, err := config.Load()
@@ -29,6 +32,13 @@ func main() {
 		logger.Error("Failed to load configuration", "error", err)
 		os.Exit(1)
 	}
+	dbPool, err := database.NewPostgresPool(ctx, cfg.DatabaseDSN)
+	if err != nil {
+		logger.Error("Failed to connect to postgres", "error", err)
+		os.Exit(1)
+	}
+	defer dbPool.Close()
+	logger.Info("Successfully connected to PostgreSQL")
 	rdb, err := cache.NewRedisClient(cfg.RedisAddr, cfg.RedisPassword, cfg.RedisDB)
 	if err != nil {
 		logger.Error("Failed to connect to redis", "error", err)
@@ -40,8 +50,8 @@ func main() {
 
 	// --- Instanciação dos Componentes ---
 	eventBroker := broker.NewLogBroker(logger)
-	userValidator := &auth.MockUserValidator{}
-	authHandler := auth.NewHandler(logger, userValidator, cfg.JWTSecretKey)
+	userRepo := user.NewRepository(logger, dbPool)
+	authHandler := auth.NewHandler(logger, userRepo, cfg.JWTSecretKey, cfg.GoogleOAuthConfig)
 	catalogHandler := catalog.NewHandler(logger, rdb)
 	salesHandler := sales.NewHandler(logger, rdb, eventBroker)
 	paymentGateway := payments.NewFakePaymentGateway(logger)

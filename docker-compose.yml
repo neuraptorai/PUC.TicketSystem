@@ -4,22 +4,22 @@ version: '3.8'
 
 services:
   # Serviço da nossa API Go
-  api:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: puc-ticket-api
-    ports:
-      - "8080:8080"
-    # Carrega as variáveis de ambiente do arquivo .env
-    env_file:
-      - .env
-    # Garante que o redis e o db iniciem antes da api
-    depends_on:
-      - redis
-      - db
-    networks:
-      - ticket-network
+  # api:
+    # build:
+    #   context: .
+    #   dockerfile: Dockerfile
+    # container_name: puc-ticket-api
+    # ports:
+    #   - "8080:8080"
+    # # Carrega as variáveis de ambiente do arquivo .env
+    # env_file:
+    #   - .env
+    # # Garante que o redis e o db iniciem antes da api
+    # depends_on:
+    #   - redis
+    #   - db
+    # networks:
+    #   - ticket-network
 
   # Serviço do Redis
   redis:

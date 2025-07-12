@@ -13,6 +13,8 @@ import (
 // ... (interfaces AuthHandler, CatalogHandler, SalesHandler sem alterações) ...
 type AuthHandler interface {
 	Login(w http.ResponseWriter, r *http.Request)
+	HandleGoogleLogin(w http.ResponseWriter, r *http.Request)
+	HandleGoogleCallback(w http.ResponseWriter, r *http.Request)
 }
 type CatalogHandler interface {
 	GetAvailability(w http.ResponseWriter, r *http.Request)
@@ -40,6 +42,9 @@ func NewRouter(
 
 	r.Route("/api/v1", func(r chi.Router) {
 		r.Post("/auth/login", authHandler.Login)
+		r.Get("/auth/google/login", authHandler.HandleGoogleLogin)
+		r.Get("/auth/google/callback", authHandler.HandleGoogleCallback)
+
 		r.Get("/events/{eventID}/availability", catalogHandler.GetAvailability)
 
 		// Webhook de Pagamentos (público, mas a segurança pode ser reforçada)
