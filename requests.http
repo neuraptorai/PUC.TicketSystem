@@ -7,3 +7,25 @@ GET http://localhost:8080/health
 Content-Type: application/json
 
 ###
+# @name Login Success
+# Tenta fazer login com credenciais válidas.
+# Deverá retornar um access_token.
+POST http://localhost:8080/api/v1/auth/login
+Content-Type: application/json
+
+{
+  "email": "user@example.com",
+  "password": "password123"
+}
+
+###
+# @name Login Failure
+# Tenta fazer login com credenciais inválidas.
+# Deverá retornar 401 Unauthorized.
+POST http://localhost:8080/api/v1/auth/login
+Content-Type: application/json
+
+{
+  "email": "user@example.com",
+  "password": "wrongpassword"
+}

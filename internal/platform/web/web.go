@@ -9,22 +9,35 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 )
 
-// NewRouter cria um novo roteador chi e registra os handlers da aplicação.
-func NewRouter() http.Handler {
-	// Instanciamos o roteador do Chi.
+// AuthHandler define a interface que esperamos para os handlers de autenticação.
+// Isso evita que o pacote `web` precise importar o pacote `auth`,
+// mantendo as dependências na direção correta (web não conhece auth).
+type AuthHandler interface {
+	Login(w http.ResponseWriter, r *http.Request)
+}
+
+// NewRouter cria o roteador principal e registra todas as rotas.
+func NewRouter(authHandler AuthHandler) http.Handler {
 	r := chi.NewRouter()
 
-	// Adicionamos middlewares que serão úteis.
-	// O middleware.RequestID adiciona um ID único a cada requisição.
-	// O middleware.Logger é um logger de requisições básico.
-	// O middleware.Recoverer previne que a aplicação pare em caso de panic.
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
-	r.Use(middleware.Logger) // Pode ser substituído por um middleware slog customizado no futuro.
+	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
 
-	// Registramos nosso endpoint de health check usando o método GET.
+	// Endpoint público de health check.
 	r.Get("/health", healthCheckHandler)
+
+	// Agrupamos as rotas da API sob um prefixo versionado /api/v1.
+	r.Route("/api/v1", func(r chi.Router) {
+		r.Post("/auth/login", authHandler.Login) //
+
+		// Rotas protegidas (exemplo futuro)
+		// r.Group(func(r chi.Router) {
+		//  r.Use(AuthMiddleware(jwtSecretKey)) // Middleware de validação JWT
+		//  r.Get("/me", protectedHandler)
+		// })
+	})
 
 	return r
 }
@@ -38,8 +51,5 @@ func healthCheckHandler(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-
-	if err := json.NewEncoder(w).Encode(status); err != nil {
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-	}
+	json.NewEncoder(w).Encode(status)
 }

@@ -1,0 +1,13 @@
+# File: .gitignore
+
+# Arquivos de configuração de ambiente local
+.env
+
+# Binários e arquivos de dependências do Go
+/vendor/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
