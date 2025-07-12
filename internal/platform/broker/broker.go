@@ -5,13 +5,13 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
 )
 
-// Event define a estrutura padrão para todos os eventos publicados no sistema.
-// Isso representa nossa "Linguagem Publicada", conforme ADR 003.
+// ... (struct Event e func NewEvent sem alterações) ...
 type Event struct {
 	ID        string    `json:"id"`
 	Source    string    `json:"source"`
@@ -20,7 +20,6 @@ type Event struct {
 	Data      any       `json:"data"` // 'any' permite que qualquer struct de dados seja enviada.
 }
 
-// NewEvent cria uma nova instância de Event.
 func NewEvent(source, eventType string, data any) *Event {
 	return &Event{
 		ID:        uuid.NewString(),
@@ -31,24 +30,28 @@ func NewEvent(source, eventType string, data any) *Event {
 	}
 }
 
-// MessageBroker define a interface para publicar eventos.
-// Qualquer sistema de mensageria (RabbitMQ, NATS, Kafka) deverá implementar isso.
+// EventHandlerFunc é um tipo para as funções que manipulam eventos.
+type EventHandlerFunc func(context.Context, *Event) error
+
 type MessageBroker interface {
 	Publish(ctx context.Context, topic string, event *Event) error
+	// Subscribe permite que um handler se "inscreva" em um tópico.
+	Subscribe(topic string, handler EventHandlerFunc)
 }
 
-// LogBroker é uma implementação do MessageBroker que apenas loga os eventos.
-// É perfeito para desenvolvimento e testes locais sem a necessidade de um broker real.
 type LogBroker struct {
-	log *slog.Logger
+	log      *slog.Logger
+	handlers map[string][]EventHandlerFunc // Mapeia tópicos para uma lista de handlers
+	mu       sync.Mutex                    // Protege o acesso concorrente ao mapa de handlers
 }
 
-// NewLogBroker cria uma nova instância do LogBroker.
 func NewLogBroker(log *slog.Logger) *LogBroker {
-	return &LogBroker{log: log}
+	return &LogBroker{
+		log:      log,
+		handlers: make(map[string][]EventHandlerFunc),
+	}
 }
 
-// Publish loga o evento que seria enviado para o tópico.
 func (b *LogBroker) Publish(ctx context.Context, topic string, event *Event) error {
 	eventJSON, err := json.Marshal(event)
 	if err != nil {
@@ -62,5 +65,33 @@ func (b *LogBroker) Publish(ctx context.Context, topic string, event *Event) err
 		"topic", topic,
 		"event", string(eventJSON),
 	)
+
+	// Simula o consumo do evento despachando para os handlers inscritos.
+	b.dispatch(ctx, topic, event)
+
 	return nil
+}
+
+// Subscribe adiciona um handler a um tópico.
+func (b *LogBroker) Subscribe(topic string, handler EventHandlerFunc) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.handlers[topic] = append(b.handlers[topic], handler)
+}
+
+// dispatch encontra os handlers para um tópico e os executa.
+func (b *LogBroker) dispatch(ctx context.Context, topic string, event *Event) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if handlers, found := b.handlers[topic]; found {
+		for _, handler := range handlers {
+			// Executamos cada handler em sua própria goroutine para não bloquear a publicação.
+			go func(h EventHandlerFunc) {
+				if err := h(context.Background(), event); err != nil {
+					b.log.ErrorContext(ctx, "Event handler failed", "error", err, "topic", topic, "event_id", event.ID)
+				}
+			}(handler)
+		}
+	}
 }

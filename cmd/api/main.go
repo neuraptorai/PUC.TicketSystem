@@ -14,6 +14,7 @@ import (
 	"github.com/neuraptorai/PUC.TicketSystem/internal/auth"
 	"github.com/neuraptorai/PUC.TicketSystem/internal/catalog"
 	"github.com/neuraptorai/PUC.TicketSystem/internal/config"
+	"github.com/neuraptorai/PUC.TicketSystem/internal/payments"
 	"github.com/neuraptorai/PUC.TicketSystem/internal/platform/broker" // Import
 	"github.com/neuraptorai/PUC.TicketSystem/internal/platform/cache"
 	"github.com/neuraptorai/PUC.TicketSystem/internal/platform/web"
@@ -22,14 +23,14 @@ import (
 )
 
 func main() {
-	// ... logger, config, redis client ...
+	// ... logger, config, redis client, seedStock ...
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	cfg, err := config.Load()
 	if err != nil {
 		logger.Error("Failed to load configuration", "error", err)
 		os.Exit(1)
 	}
-	logger.Info("Starting PUC.TicketSystem service...")
+	// ...
 	rdb, err := cache.NewRedisClient(cfg.RedisAddr, cfg.RedisPassword, cfg.RedisDB)
 	if err != nil {
 		logger.Error("Failed to connect to redis", "error", err)
@@ -38,38 +39,47 @@ func main() {
 	defer rdb.Close()
 	logger.Info("Successfully connected to Redis")
 	seedStock(rdb, logger)
+	// ...
 
-	// 3. Instanciar as dependências
+	// --- Instanciação dos Componentes ---
 
-	// Criamos nossa implementação "fake" do broker.
+	// Broker
 	eventBroker := broker.NewLogBroker(logger)
 
+	// Componente de Autenticação
 	userValidator := &auth.MockUserValidator{}
 	authHandler := auth.NewHandler(logger, userValidator, cfg.JWTSecretKey)
+
+	// Componente de Catálogo
 	catalogHandler := catalog.NewHandler(logger, rdb)
 
-	// Injetamos o broker no handler de sales.
+	// Componente de Vendas
 	salesHandler := sales.NewHandler(logger, rdb, eventBroker)
 
-	// 4. Injetar dependências no roteador
+	// Componente de Pagamentos
+	paymentGateway := payments.NewFakePaymentGateway(logger) // Usamos o adapter fake
+	paymentHandler := payments.NewEventHandler(logger, paymentGateway)
+
+	// --- Inscrição de Eventos ---
+	// O componente de pagamentos se inscreve para ouvir eventos do tópico 'reservations.created'.
+	eventBroker.Subscribe("reservations.created", paymentHandler.HandleReservationCreated)
+
+	// --- Configuração do Roteador ---
 	router := web.NewRouter(cfg.JWTSecretKey, authHandler, catalogHandler, salesHandler)
 
+	// ... (Resto do main sem alterações - servidor e graceful shutdown) ...
 	server := &http.Server{Addr: ":8080", Handler: router}
-	// ... (Resto do main sem alterações)
 	serverErrors := make(chan error, 1)
 	go func() {
 		logger.Info("API listening", "address", server.Addr)
 		serverErrors <- server.ListenAndServe()
 	}()
-
 	shutdown := make(chan os.Signal, 1)
 	signal.Notify(shutdown, syscall.SIGINT, syscall.SIGTERM)
-
 	select {
 	case err := <-serverErrors:
 		logger.Error("Server error", "error", err)
 		os.Exit(1)
-
 	case sig := <-shutdown:
 		logger.Info("Shutdown signal received", "signal", sig)
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
