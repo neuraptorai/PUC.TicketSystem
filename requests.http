@@ -1,10 +1,8 @@
-// File: requests.http
+# File: requests.http
 
 ###
 # @name HealthCheck
-# Envia uma requisição para o endpoint de health check.
 GET http://localhost:8080/health
-Content-Type: application/json
 
 ###
 # @name Login Success
@@ -19,13 +17,46 @@ Content-Type: application/json
 }
 
 ###
-# @name Login Failure
-# Tenta fazer login com credenciais inválidas.
-# Deverá retornar 401 Unauthorized.
-POST http://localhost:8080/api/v1/auth/login
+# @name Get Availability
+# Consulta a disponibilidade de ingressos para um evento. (Rota pública)
+GET http://localhost:8080/api/v1/events/event-123/availability
+
+###
+# @name Create Reservation Success
+# Tenta criar uma reserva para um ingresso. Requer token de autenticação.
+# ANTES DE EXECUTAR: Faça o login, copie o access_token e cole abaixo.
+POST http://localhost:8080/api/v1/reservations
+Content-Type: application/json
+Authorization: Bearer <SEU_TOKEN_AQUI>
+
+{
+  "event_id": "event-123",
+  "ticket_type_id": "ticket-type-standard",
+  "quantity": 2
+}
+
+###
+# @name Create Reservation No Auth
+# Tenta criar uma reserva sem o token. Deve falhar com 401.
+POST http://localhost:8080/api/v1/reservations
 Content-Type: application/json
 
 {
-  "email": "user@example.com",
-  "password": "wrongpassword"
+  "event_id": "event-123",
+  "ticket_type_id": "ticket-type-standard",
+  "quantity": 1
+}
+
+###
+# @name Create Reservation No Stock
+# Tenta criar uma reserva para mais ingressos do que o disponível. Deve falhar com 409.
+# ANTES DE EXECUTAR: Faça o login, copie o access_token e cole abaixo.
+POST http://localhost:8080/api/v1/reservations
+Content-Type: application/json
+Authorization: Bearer <SEU_TOKEN_AQUI>
+
+{
+  "event_id": "event-123",
+  "ticket_type_id": "ticket-type-vip",
+  "quantity": 999
 }

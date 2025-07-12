@@ -2,6 +2,7 @@
 package main
 
 import (
+	// ... outros imports
 	"context"
 	"log/slog"
 	"net/http"
@@ -10,42 +11,51 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/neuraptorai/PUC.TicketSystem/config"
 	"github.com/neuraptorai/PUC.TicketSystem/internal/auth"
+	"github.com/neuraptorai/PUC.TicketSystem/internal/catalog"
+	"github.com/neuraptorai/PUC.TicketSystem/internal/config"
+	"github.com/neuraptorai/PUC.TicketSystem/internal/platform/broker" // Import
+	"github.com/neuraptorai/PUC.TicketSystem/internal/platform/cache"
 	"github.com/neuraptorai/PUC.TicketSystem/internal/platform/web"
+	"github.com/neuraptorai/PUC.TicketSystem/internal/sales"
+	"github.com/redis/go-redis/v9"
 )
 
 func main() {
+	// ... logger, config, redis client ...
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
-
-	// 1. Carregar a configuração
-	// Este é um dos primeiros passos, pois a configuração é necessária para
-	// inicializar outros componentes.
 	cfg, err := config.Load()
 	if err != nil {
 		logger.Error("Failed to load configuration", "error", err)
 		os.Exit(1)
 	}
-
 	logger.Info("Starting PUC.TicketSystem service...")
-
-	// 2. Instanciar as dependências (Composition Root)
-	userValidator := &auth.MockUserValidator{}
-
-	// Injetamos a chave secreta do JWT (carregada do config) no handler.
-	authHandler := auth.NewHandler(logger, userValidator, cfg.JWTSecretKey)
-
-	router := web.NewRouter(authHandler)
-
-	// 3. O restante da configuração do servidor permanece o mesmo.
-	server := &http.Server{
-		Addr:         ":8080",
-		Handler:      router,
-		ReadTimeout:  5 * time.Second,
-		WriteTimeout: 10 * time.Second,
-		IdleTimeout:  120 * time.Second,
+	rdb, err := cache.NewRedisClient(cfg.RedisAddr, cfg.RedisPassword, cfg.RedisDB)
+	if err != nil {
+		logger.Error("Failed to connect to redis", "error", err)
+		os.Exit(1)
 	}
+	defer rdb.Close()
+	logger.Info("Successfully connected to Redis")
+	seedStock(rdb, logger)
 
+	// 3. Instanciar as dependências
+
+	// Criamos nossa implementação "fake" do broker.
+	eventBroker := broker.NewLogBroker(logger)
+
+	userValidator := &auth.MockUserValidator{}
+	authHandler := auth.NewHandler(logger, userValidator, cfg.JWTSecretKey)
+	catalogHandler := catalog.NewHandler(logger, rdb)
+
+	// Injetamos o broker no handler de sales.
+	salesHandler := sales.NewHandler(logger, rdb, eventBroker)
+
+	// 4. Injetar dependências no roteador
+	router := web.NewRouter(cfg.JWTSecretKey, authHandler, catalogHandler, salesHandler)
+
+	server := &http.Server{Addr: ":8080", Handler: router}
+	// ... (Resto do main sem alterações)
 	serverErrors := make(chan error, 1)
 	go func() {
 		logger.Info("API listening", "address", server.Addr)
@@ -62,14 +72,28 @@ func main() {
 
 	case sig := <-shutdown:
 		logger.Info("Shutdown signal received", "signal", sig)
-
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-
 		if err := server.Shutdown(ctx); err != nil {
 			logger.Error("Graceful shutdown failed", "error", err)
 			server.Close()
 		}
 		logger.Info("Shutdown complete")
+	}
+}
+
+// ... seedStock function sem alterações
+func seedStock(rdb *redis.Client, log *slog.Logger) {
+	ctx := context.Background()
+	key := "event:event-123:stock"
+	rdb.Del(ctx, key)
+	err := rdb.HMSet(ctx, key, map[string]interface{}{
+		"ticket-type-standard": 100,
+		"ticket-type-vip":      50,
+	}).Err()
+	if err != nil {
+		log.Error("Failed to seed redis stock", "error", err)
+	} else {
+		log.Info("Redis stock seeded successfully", "event_id", "event-123")
 	}
 }
