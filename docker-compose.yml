@@ -18,6 +18,7 @@ services:
     # depends_on:
     #   - redis
     #   - db
+    #   - rabbitmq
     # networks:
     #   - ticket-network
 
@@ -51,6 +52,24 @@ services:
     networks:
       - ticket-network
 
+  # Serviço do RabbitMQ
+  rabbitmq:
+    image: "rabbitmq:3.13-management-alpine"
+    container_name: puc-ticket-rabbitmq
+    ports:
+      # Porta da API de gerenciamento
+      - "15672:15672"
+      # Porta do protocolo AMQP
+      - "5672:5672"
+    environment:
+      # Usuário e senha padrão, podem ser customizados
+      - RABBITMQ_DEFAULT_USER=guest
+      - RABBITMQ_DEFAULT_PASS=guest
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    networks:
+      - ticket-network
+
 # Define a rede customizada para os serviços
 networks:
   ticket-network:
@@ -60,3 +79,5 @@ networks:
 volumes:
   redis-data:
   postgres-data:
+  rabbitmq-data:
+

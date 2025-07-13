@@ -52,24 +52,42 @@ func main() {
 	logger.Info("Successfully connected to Redis")
 	seedStock(rdb, logger)
 
+	// Conectamos ao RabbitMQ
+	rabbitBroker, err := broker.NewRabbitMQBroker(cfg.RABBITMQ_DSN, logger)
+	if err != nil {
+		logger.Error("Failed to connect to RabbitMQ", "error", err)
+		os.Exit(1)
+	}
+	defer rabbitBroker.Close()
+	logger.Info("Successfully connected to RabbitMQ")
+
 	// == Dependências Repositórios ==
 	salesRepo := sales.NewRepository(logger, dbPool)
 	paymentsRepo := payments.NewRepository(logger, dbPool)
 
 	// --- Instanciação dos Componentes ---
-	eventBroker := broker.NewLogBroker(logger)
 	userRepo := user.NewRepository(logger, dbPool)
 	authHandler := auth.NewHandler(logger, userRepo, cfg.JWTSecretKey, cfg.GoogleOAuthConfig)
 	catalogHandler := catalog.NewHandler(logger, rdb)
-	salesHandler := sales.NewHandler(logger, rdb, eventBroker, salesRepo)
+	salesHandler := sales.NewHandler(logger, rdb, rabbitBroker, salesRepo)
 	paymentGateway := payments.NewFakePaymentGateway(logger)
 	// O paymentHandler agora também precisa do broker para publicar o evento interno.
-	paymentHandler := payments.NewEventHandler(logger, paymentGateway, eventBroker, paymentsRepo)
+	paymentHandler := payments.NewEventHandler(logger, paymentGateway, rabbitBroker, paymentsRepo)
 
 	// --- Inscrição de Eventos ---
-	eventBroker.Subscribe("reservations.created", paymentHandler.HandleReservationCreated)
-	// Inscrevemos o novo handler para ouvir os eventos de pagamento processado.
-	eventBroker.Subscribe("payments.processed", paymentHandler.HandlePaymentProcessed)
+	go rabbitBroker.StartConsumer(
+		"reservations.created",               // Exchange
+		"payments.reservation_created.queue", // Queue
+		"ReservationCreated",                 // Routing Key
+		paymentHandler.HandleReservationCreated,
+	)
+
+	go rabbitBroker.StartConsumer(
+		"payments.processed",
+		"orders.payment_processed.queue",
+		"PaymentProcessed",
+		paymentHandler.HandlePaymentProcessed,
+	)
 
 	// --- Configuração do Roteador ---
 	router := web.NewRouter(cfg.JWTSecretKey, authHandler, catalogHandler, salesHandler, paymentHandler)

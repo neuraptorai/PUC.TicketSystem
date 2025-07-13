@@ -19,6 +19,7 @@ type Config struct {
 	RedisDB           int
 	DatabaseDSN       string
 	GoogleOAuthConfig *oauth2.Config
+	RABBITMQ_DSN      string // DSN para conexão com RabbitMQ
 }
 
 func Load() (*Config, error) {
@@ -63,6 +64,12 @@ func Load() (*Config, error) {
 		os.Getenv("DB_NAME"),
 	)
 
+	// Verifica se a DSN do RabbitMQ está definida
+	rabbitMQDSN := os.Getenv("RABBITMQ_DSN")
+	if rabbitMQDSN == "" {
+		return nil, fmt.Errorf("RABBITMQ_DSN environment variable not set")
+	}
+
 	cfg := &Config{
 		JWTSecretKey:      jwtKey,
 		RedisAddr:         redisAddr,
@@ -70,6 +77,7 @@ func Load() (*Config, error) {
 		RedisDB:           redisDB,
 		DatabaseDSN:       dsn,
 		GoogleOAuthConfig: googleOAuthConfig,
+		RABBITMQ_DSN:      rabbitMQDSN,
 	}
 
 	return cfg, nil

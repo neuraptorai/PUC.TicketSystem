@@ -35,8 +35,6 @@ type EventHandlerFunc func(context.Context, *Event) error
 
 type MessageBroker interface {
 	Publish(ctx context.Context, topic string, event *Event) error
-	// Subscribe permite que um handler se "inscreva" em um tópico.
-	Subscribe(topic string, handler EventHandlerFunc)
 }
 
 type LogBroker struct {
