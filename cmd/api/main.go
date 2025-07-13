@@ -32,6 +32,10 @@ func main() {
 		logger.Error("Failed to load configuration", "error", err)
 		os.Exit(1)
 	}
+	if err := database.RunMigrations(cfg.DatabaseDSN, logger); err != nil {
+		logger.Error("Failed to run database migrations", "error", err)
+		os.Exit(1)
+	}
 	dbPool, err := database.NewPostgresPool(ctx, cfg.DatabaseDSN)
 	if err != nil {
 		logger.Error("Failed to connect to postgres", "error", err)
@@ -48,15 +52,19 @@ func main() {
 	logger.Info("Successfully connected to Redis")
 	seedStock(rdb, logger)
 
+	// == Dependências Repositórios ==
+	salesRepo := sales.NewRepository(logger, dbPool)
+	paymentsRepo := payments.NewRepository(logger, dbPool)
+
 	// --- Instanciação dos Componentes ---
 	eventBroker := broker.NewLogBroker(logger)
 	userRepo := user.NewRepository(logger, dbPool)
 	authHandler := auth.NewHandler(logger, userRepo, cfg.JWTSecretKey, cfg.GoogleOAuthConfig)
 	catalogHandler := catalog.NewHandler(logger, rdb)
-	salesHandler := sales.NewHandler(logger, rdb, eventBroker)
+	salesHandler := sales.NewHandler(logger, rdb, eventBroker, salesRepo)
 	paymentGateway := payments.NewFakePaymentGateway(logger)
 	// O paymentHandler agora também precisa do broker para publicar o evento interno.
-	paymentHandler := payments.NewEventHandler(logger, paymentGateway, eventBroker)
+	paymentHandler := payments.NewEventHandler(logger, paymentGateway, eventBroker, paymentsRepo)
 
 	// --- Inscrição de Eventos ---
 	eventBroker.Subscribe("reservations.created", paymentHandler.HandleReservationCreated)

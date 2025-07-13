@@ -16,14 +16,17 @@ type EventHandler struct {
 	log     *slog.Logger
 	gateway PaymentGateway
 	broker  broker.MessageBroker
+	repo    *Repository // Nova dependência do repositório
+
 }
 
 // NewEventHandler agora recebe a dependência do broker.
-func NewEventHandler(log *slog.Logger, gateway PaymentGateway, broker broker.MessageBroker) *EventHandler {
+func NewEventHandler(log *slog.Logger, gateway PaymentGateway, broker broker.MessageBroker, repo *Repository) *EventHandler {
 	return &EventHandler{
 		log:     log,
 		gateway: gateway,
 		broker:  broker,
+		repo:    repo,
 	}
 }
 
@@ -113,6 +116,12 @@ func (h *EventHandler) HandlePaymentProcessed(ctx context.Context, event *broker
 		// POR FAZER: Iniciar transação de banco de dados aqui. [cite: 62]
 		// 1. Atualizar o status da Reserva para CONVERTIDA. [cite: 63]
 		h.log.InfoContext(ctx, "Updating reservation status to CONVERTED (simulated)", "reservation_id", payload.ReservationID)
+		err := h.repo.FinalizeOrder(ctx, payload)
+		if err != nil {
+			h.log.ErrorContext(ctx, "Failed to finalize order transaction", "error", err, "reservation_id", payload.ReservationID)
+			// Em um sistema real, isso iria para uma Dead-Letter Queue (DLQ) para análise manual[cite: 37].
+			return err
+		}
 		// 2. Criar registros nas tabelas pedidos e itens_pedido. [cite: 63]
 		h.log.InfoContext(ctx, "Creating order and order_items records (simulated)", "reservation_id", payload.ReservationID)
 		// 3. Se a transação for bem-sucedida (COMMIT), publicar o evento final PedidoConfirmado. [cite: 64]

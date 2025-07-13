@@ -42,9 +42,9 @@ services:
       - "5432:5432"
     # As variáveis de ambiente são usadas pelo Postgre para inicializar o DB.
     environment:
-      - POSTGRES_USER=${DB_USER}
-      - POSTGRES_PASSWORD=${DB_PASSWORD}
-      - POSTGRES_DB=${DB_NAME}
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}
     volumes:
       # Volume nomeado para persistir os dados do PostgreSQL
       - postgres-data:/var/lib/postgresql/data

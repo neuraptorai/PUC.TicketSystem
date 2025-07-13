@@ -16,12 +16,13 @@ import (
 type Handler struct {
 	log    *slog.Logger
 	rdb    *redis.Client
-	broker broker.MessageBroker // Dependência da interface
+	broker broker.MessageBroker
+	repo   *Repository
 }
 
 // NewHandler agora aceita um MessageBroker.
-func NewHandler(log *slog.Logger, rdb *redis.Client, broker broker.MessageBroker) *Handler {
-	return &Handler{log: log, rdb: rdb, broker: broker}
+func NewHandler(log *slog.Logger, rdb *redis.Client, broker broker.MessageBroker, repo *Repository) *Handler {
+	return &Handler{log: log, rdb: rdb, broker: broker, repo: repo}
 }
 
 type ReservationRequest struct {
@@ -86,6 +87,14 @@ func (h *Handler) CreateReservation(w http.ResponseWriter, r *http.Request) {
 		TicketTypeID:  req.TicketTypeID,
 		Quantity:      req.Quantity,
 		UserID:        userID,
+	}
+	if err := h.repo.CreateReservation(ctx, eventData); err != nil {
+		// ERRO CRÍTICO: O estoque no Redis foi decrementado, mas a persistência falhou.
+		// Em um sistema real, aqui teríamos que ter uma lógica de compensação,
+		// como reverter o estoque no Redis ou enfileirar a persistência para uma nova tentativa.
+		h.log.ErrorContext(ctx, "CRITICAL: Failed to persist reservation after updating stock", "error", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
 	}
 	reservationEvent := broker.NewEvent("sales-service", "ReservationCreated", eventData)
 

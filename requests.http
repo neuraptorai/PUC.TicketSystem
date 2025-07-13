@@ -1,6 +1,7 @@
 # File: requests.http
-@access_token = eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyX2lkIjoidXNlci1pZC0xMjMiLCJpc3MiOiJwdWMudGlja2V0c3lzdGVtIiwiZXhwIjoxNzUyMzYyODMwLCJpYXQiOjE3NTIzNTkyMzB9.i-dOhsjHclA7hHoRBqB4dKIDqEuTdDlvwm3HjkHlP94
-###
+@payment_id =f12d163e-948a-4ca4-9a1b-919ffaed4eb6
+@reservation_id = f12d163e-948a-4ca4-9a1b-919ffaed4eb6
+@access_token = eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyX2lkIjoiYmUzZGRmYTUtZWExNC00ODczLTliYzctNzQ5YjYzZjg2MzM1IiwiaXNzIjoicHVjLnRpY2tldHN5c3RlbSIsImV4cCI6MTc1MjM2OTc1MSwiaWF0IjoxNzUyMzY2MTUxfQ.Lq4rwBCAB67bQruBgsVaO2UidUdJkCpfsO78SG002so
 # @name HealthCheck
 GET http://localhost:8080/health
 
@@ -68,8 +69,8 @@ POST http://localhost:8080/api/v1/payments/webhook
 Content-Type: application/json
 
 {
-  "payment_id": "pay_some_reservation_id",
-  "reservation_id": "some_reservation_id_from_a_previous_step",
+  "payment_id": "{{payment_id}}",
+  "reservation_id": "{{reservation_id}}",
   "status": "APPROVED",
   "amount": 100.00
 }
