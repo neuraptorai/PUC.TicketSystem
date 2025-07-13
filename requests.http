@@ -1,7 +1,7 @@
 # File: requests.http
 @payment_id =f12d163e-948a-4ca4-9a1b-919ffaed4eb6
 @reservation_id = f12d163e-948a-4ca4-9a1b-919ffaed4eb6
-@access_token = eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyX2lkIjoiYmUzZGRmYTUtZWExNC00ODczLTliYzctNzQ5YjYzZjg2MzM1IiwiaXNzIjoicHVjLnRpY2tldHN5c3RlbSIsImV4cCI6MTc1MjM2OTc1MSwiaWF0IjoxNzUyMzY2MTUxfQ.Lq4rwBCAB67bQruBgsVaO2UidUdJkCpfsO78SG002so
+@access_token = 
 # @name HealthCheck
 GET http://localhost:8080/health
 

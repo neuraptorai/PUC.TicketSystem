@@ -3,10 +3,12 @@ package payments
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -21,20 +23,34 @@ func NewRepository(log *slog.Logger, db *pgxpool.Pool) *Repository {
 
 // FinalizeOrder executa a transação para converter uma reserva em um pedido.
 func (r *Repository) FinalizeOrder(ctx context.Context, payload WebhookPayload) error {
-	// Inicia uma transação com o banco de dados.
+	// PASSO DE IDEMPOTÊNCIA: Verifica se já existe um pedido para esta reserva.
+	var orderID string
+	checkQuery := `SELECT id FROM orders WHERE reservation_id = $1`
+	reservationUUID, err := uuid.Parse(payload.ReservationID)
+	if err != nil {
+		return fmt.Errorf("invalid reservation_id format: %w", err)
+	}
+
+	err = r.db.QueryRow(ctx, checkQuery, reservationUUID).Scan(&orderID)
+	if err == nil && orderID != "" {
+		// Pedido já existe. Retornamos sucesso sem fazer nada.
+		r.log.WarnContext(ctx, "Order already processed for this reservation. Skipping.", "reservation_id", payload.ReservationID, "existing_order_id", orderID)
+		return nil
+	}
+	// Se o erro não for 'no rows', algo inesperado aconteceu.
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return fmt.Errorf("failed to check for existing order: %w", err)
+	}
+
+	// Inicia a transação com o banco de dados.
 	tx, err := r.db.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	// Garante que a transação seja desfeita (ROLLBACK) se algo der errado.
 	defer tx.Rollback(ctx)
 
 	// Passo 1: Atualiza o status da reserva para 'CONVERTED'.
 	updateReservationQuery := `UPDATE reservations SET status = 'CONVERTED' WHERE id = $1`
-	reservationUUID, err := uuid.Parse(payload.ReservationID)
-	if err != nil {
-		return err
-	}
 
 	cmdTag, err := tx.Exec(ctx, updateReservationQuery, reservationUUID)
 	if err != nil {

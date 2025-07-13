@@ -74,27 +74,56 @@ func (b *RabbitMQBroker) StartConsumer(exchangeName, queueName, routingKey strin
 		b.log.Error("Failed to open a channel for consumer", "error", err)
 		return
 	}
-	// Não fechamos o canal aqui, pois ele precisa ficar aberto para o consumidor.
+	// --- Configuração da Dead-Letter Queue (DLQ) ---
+	dlqExchange := exchangeName + ".dlx"
+	dlqQueue := queueName + ".dlq"
 
-	err = ch.ExchangeDeclare(exchangeName, "topic", true, false, false, false, nil)
+	// Declara o exchange da DLQ
+	err = ch.ExchangeDeclare(dlqExchange, "direct", true, false, false, false, nil)
 	if err != nil {
-		b.log.Error("Failed to declare an exchange for consumer", "error", err)
+		b.log.Error("Failed to declare DLQ exchange", "error", err, "exchange", dlqExchange)
 		return
 	}
 
-	q, err := ch.QueueDeclare(queueName, true, false, false, false, nil)
+	// Declara a fila da DLQ
+	_, err = ch.QueueDeclare(dlqQueue, true, false, false, false, nil)
 	if err != nil {
-		b.log.Error("Failed to declare a queue", "error", err)
+		b.log.Error("Failed to declare DLQ", "error", err, "queue", dlqQueue)
+		return
+	}
+
+	// Faz o bind da fila DLQ com o exchange DLQ
+	err = ch.QueueBind(dlqQueue, routingKey, dlqExchange, false, nil)
+	if err != nil {
+		b.log.Error("Failed to bind DLQ", "error", err, "queue", dlqQueue)
+		return
+	}
+	// --- Configuração da Fila Principal ---
+	err = ch.ExchangeDeclare(exchangeName, "topic", true, false, false, false, nil)
+	if err != nil {
+		b.log.Error("Failed to declare main exchange", "error", err, "exchange", exchangeName)
+		return
+	}
+
+	// Declara a fila principal com os argumentos para apontar para a DLQ
+	args := amqp091.Table{
+		"x-dead-letter-exchange":    dlqExchange,
+		"x-dead-letter-routing-key": routingKey,
+	}
+	q, err := ch.QueueDeclare(queueName, true, false, false, false, args)
+	if err != nil {
+		b.log.Error("Failed to declare main queue", "error", err, "queue", queueName)
 		return
 	}
 
 	err = ch.QueueBind(q.Name, routingKey, exchangeName, false, nil)
 	if err != nil {
-		b.log.Error("Failed to bind a queue", "error", err)
+		b.log.Error("Failed to bind main queue", "error", err, "queue", queueName)
 		return
 	}
 
-	msgs, err := ch.Consume(q.Name, "", true, false, false, false, nil)
+	// Altera o consumo para 'autoAck: false' para Acknowledgment manual
+	msgs, err := ch.Consume(q.Name, "", false, false, false, false, nil)
 	if err != nil {
 		b.log.Error("Failed to register a consumer", "error", err)
 		return
@@ -102,19 +131,27 @@ func (b *RabbitMQBroker) StartConsumer(exchangeName, queueName, routingKey strin
 
 	b.log.Info("Consumer started. Waiting for messages.", "queue", q.Name, "routing_key", routingKey)
 
-	// Loop infinito para processar mensagens
 	for msg := range msgs {
 		var event Event
 		if err := json.Unmarshal(msg.Body, &event); err != nil {
-			b.log.Error("Failed to unmarshal event from message", "error", err)
+			b.log.Error("Failed to unmarshal event (poison pill). Sending to DLQ.", "error", err)
+			// Rejeita a mensagem e NÃO a recoloca na fila, fazendo com que vá para a DLQ.
+			_ = msg.Nack(false, false)
 			continue
 		}
 
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		if err := handler(ctx, &event); err != nil {
-			b.log.Error("Event handler failed", "error", err, "event_id", event.ID)
-		}
+		err = handler(ctx, &event)
 		cancel()
+
+		if err != nil {
+			b.log.Error("Event handler failed. Sending to DLQ.", "error", err, "event_id", event.ID)
+			// Rejeita a mensagem e NÃO a recoloca na fila.
+			_ = msg.Nack(false, false)
+		} else {
+			// Confirma que a mensagem foi processada com sucesso.
+			_ = msg.Ack(false)
+		}
 	}
 }
 
