@@ -1,4 +1,4 @@
-// File: internal/database/postgres.go
+// File: internal/database/postgres.g
 package database
 
 import (
@@ -15,7 +15,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// ... (NewPostgresPool sem alterações)
 func NewPostgresPool(ctx context.Context, dsn string) (*pgxpool.Pool, error) {
 	config, err := pgxpool.ParseConfig(dsn)
 	if err != nil {
@@ -37,7 +36,7 @@ func NewPostgresPool(ctx context.Context, dsn string) (*pgxpool.Pool, error) {
 }
 
 func RunMigrations(dsn string, log *slog.Logger) error {
-	// **A CORREÇÃO ESTÁ AQUI**
+
 	migrateDSN := strings.Replace(dsn, "postgres://", "pgx5://", 1)
 
 	m, err := migrate.New("file://sql/migrations", migrateDSN)

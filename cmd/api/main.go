@@ -3,6 +3,7 @@ package main
 
 import (
 	"context"
+	"log"
 	"log/slog"
 	"net/http"
 	"os"
@@ -10,15 +11,17 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/neuraptorai/PUC.TicketSystem/internal/adapters/postgresrepo"
+	"github.com/neuraptorai/PUC.TicketSystem/internal/adapters/rabbitmq"
+	"github.com/neuraptorai/PUC.TicketSystem/internal/adapters/redisrepo"
 	"github.com/neuraptorai/PUC.TicketSystem/internal/auth"
 	"github.com/neuraptorai/PUC.TicketSystem/internal/catalog"
 	"github.com/neuraptorai/PUC.TicketSystem/internal/config"
 	"github.com/neuraptorai/PUC.TicketSystem/internal/database"
-	"github.com/neuraptorai/PUC.TicketSystem/internal/payments"
-	"github.com/neuraptorai/PUC.TicketSystem/internal/platform/broker"
 	"github.com/neuraptorai/PUC.TicketSystem/internal/platform/cache"
+	"github.com/neuraptorai/PUC.TicketSystem/internal/platform/queue"
 	"github.com/neuraptorai/PUC.TicketSystem/internal/platform/web"
-	"github.com/neuraptorai/PUC.TicketSystem/internal/sales"
+	"github.com/neuraptorai/PUC.TicketSystem/internal/reservations"
 	"github.com/neuraptorai/PUC.TicketSystem/internal/user"
 	"github.com/redis/go-redis/v9"
 )
@@ -26,7 +29,6 @@ import (
 func main() {
 	ctx := context.Background()
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
-	// ... (config, redis, seedStock) ...
 	cfg, err := config.Load()
 	if err != nil {
 		logger.Error("Failed to load configuration", "error", err)
@@ -43,54 +45,47 @@ func main() {
 	}
 	defer dbPool.Close()
 	logger.Info("Successfully connected to PostgreSQL")
-	rdb, err := cache.NewRedisClient(cfg.RedisAddr, cfg.RedisPassword, cfg.RedisDB)
+	redisClient, err := cache.NewRedisClient(cfg.RedisAddr, cfg.RedisPassword, cfg.RedisDB)
 	if err != nil {
 		logger.Error("Failed to connect to redis", "error", err)
 		os.Exit(1)
 	}
-	defer rdb.Close()
+	defer redisClient.Close()
 	logger.Info("Successfully connected to Redis")
-	seedStock(rdb, logger)
+	seedStock(redisClient, logger)
 
-	// Conectamos ao RabbitMQ
-	rabbitBroker, err := broker.NewRabbitMQBroker(cfg.RABBITMQ_DSN, logger)
+	rabbitConn, err := queue.NewRabbitMQConnection(cfg.RABBITMQ_DSN)
 	if err != nil {
-		logger.Error("Failed to connect to RabbitMQ", "error", err)
-		os.Exit(1)
+		log.Fatal("failed to connect to rabbitmq", "error", err)
 	}
-	defer rabbitBroker.Close()
+	defer rabbitConn.Close()
+	const domainExchange = "domain_events"
+	if err := rabbitConn.SetupDomainExchanges(domainExchange); err != nil {
+		log.Fatal("failed to setup rabbitmq exchanges", "error", err)
+	}
 	logger.Info("Successfully connected to RabbitMQ")
 
+	// == Event Publisher ==
+	eventPublisher := rabbitmq.NewEventPublisher(rabbitConn.Channel, logger, domainExchange)
+
 	// == Dependências Repositórios ==
-	salesRepo := sales.NewRepository(logger, dbPool)
-	paymentsRepo := payments.NewRepository(logger, dbPool)
+	availabilityRepo := redisrepo.NewAvailabilityRepo(redisClient, logger)
+	userRepo := user.NewRepository(logger, dbPool)
+	reservationRepo := postgresrepo.NewReservationRepo(dbPool, logger)
+	stockRepo := redisrepo.NewStockRepo(redisClient, logger)
+
+	// == Services ==
+	catalogSvc := catalog.NewService(logger, availabilityRepo)
+	reservationSvc := reservations.NewService(logger, stockRepo, reservationRepo, eventPublisher)
 
 	// --- Instanciação dos Componentes ---
-	userRepo := user.NewRepository(logger, dbPool)
 	authHandler := auth.NewHandler(logger, userRepo, cfg.JWTSecretKey, cfg.GoogleOAuthConfig)
-	catalogHandler := catalog.NewHandler(logger, rdb)
-	salesHandler := sales.NewHandler(logger, rdb, rabbitBroker, salesRepo)
-	paymentGateway := payments.NewFakePaymentGateway(logger)
+	catalogHandler := catalog.NewHandler(logger, catalogSvc)
+	reservationHandler := reservations.NewHandler(logger, reservationSvc)
 	// O paymentHandler agora também precisa do broker para publicar o evento interno.
-	paymentHandler := payments.NewEventHandler(logger, paymentGateway, rabbitBroker, paymentsRepo)
-
-	// --- Inscrição de Eventos ---
-	go rabbitBroker.StartConsumer(
-		"reservations.created",               // Exchange
-		"payments.reservation_created.queue", // Queue
-		"ReservationCreated",                 // Routing Key
-		paymentHandler.HandleReservationCreated,
-	)
-
-	go rabbitBroker.StartConsumer(
-		"payments.processed",
-		"orders.payment_processed.queue",
-		"PaymentProcessed",
-		paymentHandler.HandlePaymentProcessed,
-	)
 
 	// --- Configuração do Roteador ---
-	router := web.NewRouter(cfg.JWTSecretKey, authHandler, catalogHandler, salesHandler, paymentHandler)
+	router := web.NewRouter(cfg.JWTSecretKey, authHandler, catalogHandler, reservationHandler)
 
 	// ... (Resto do main sem alterações) ...
 	server := &http.Server{Addr: ":8080", Handler: router}

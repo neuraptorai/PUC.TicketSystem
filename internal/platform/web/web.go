@@ -8,32 +8,16 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/neuraptorai/PUC.TicketSystem/internal/auth"
+	"github.com/neuraptorai/PUC.TicketSystem/internal/catalog"
+	"github.com/neuraptorai/PUC.TicketSystem/internal/reservations"
 )
-
-// ... (interfaces AuthHandler, CatalogHandler, SalesHandler sem alterações) ...
-type AuthHandler interface {
-	Login(w http.ResponseWriter, r *http.Request)
-	HandleGoogleLogin(w http.ResponseWriter, r *http.Request)
-	HandleGoogleCallback(w http.ResponseWriter, r *http.Request)
-}
-type CatalogHandler interface {
-	GetAvailability(w http.ResponseWriter, r *http.Request)
-}
-type SalesHandler interface {
-	CreateReservation(w http.ResponseWriter, r *http.Request)
-}
-
-// Adicionamos uma interface para o handler de pagamentos, para o webhook.
-type PaymentHandler interface {
-	HandleWebhook(w http.ResponseWriter, r *http.Request)
-}
 
 func NewRouter(
 	secretKey string,
-	authHandler AuthHandler,
-	catalogHandler CatalogHandler,
-	salesHandler SalesHandler,
-	paymentHandler PaymentHandler, // Nova dependência
+	authHandler *auth.Handler,
+	catalogHandler *catalog.Handler,
+	reservationHandler *reservations.Handler, // AQUI ESTÁ ELE!
+	// paymentHandler *payments.Handler, // Supondo que payments também tenha um Handler
 ) http.Handler {
 	r := chi.NewRouter()
 
@@ -48,18 +32,17 @@ func NewRouter(
 		r.Get("/events/{eventID}/availability", catalogHandler.GetAvailability)
 
 		// Webhook de Pagamentos (público, mas a segurança pode ser reforçada)
-		r.Post("/payments/webhook", paymentHandler.HandleWebhook)
+		// r.Post("/payments/webhook", paymentHandler.HandleWebhook)
 
 		r.Group(func(r chi.Router) {
 			r.Use(auth.Middleware(secretKey))
-			r.Post("/reservations", salesHandler.CreateReservation)
+			r.Post("/reservations", reservationHandler.CreateReservation)
 		})
 	})
 
 	return r
 }
 
-// ... (healthCheckHandler sem alterações) ...
 func healthCheckHandler(w http.ResponseWriter, r *http.Request) {
 	status := struct {
 		Status string `json:"status"`
